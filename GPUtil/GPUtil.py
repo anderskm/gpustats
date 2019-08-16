@@ -310,3 +310,123 @@ def showUtilization(all=False, attrList=None, useOldCode=False):
             print(headerSpacingString)
             for GPUstring in GPUstrings:
                 print(GPUstring)
+
+def _check_filename(log_file):
+    """
+    This function checks that the file to use as a log does not already exist
+
+    :param log_file: the filename to which to write all the information
+    :type log_file: string
+    :return: approved filename
+    """
+
+    if log_file[-4:] != ".csv":
+        log_file += ".csv"
+
+    counter = 0
+    file_name = log_file[:-4]
+    while True:
+        if os.path.isfile(log_file):
+            counter += 1
+            log_file = file_name + "_" + str(counter) + ".csv"
+        else:
+            break
+
+    return log_file
+
+def writeUtilization(delay=2, count=1, all=False, log_file="gpu_log.csv"):
+    """
+    Writes the stats of the GPU to a log file. Currently only takes the ID, the percentage load and the percentage
+    memory used,
+
+    :param delay: how often to write the GPU data to file in seconds
+    :type delay: float
+    :param count: how many times should the data be written to the file
+    :type count: int
+    :param all: Flag that sets whether to log all information or just name, memory and load
+    :type all: bool
+    :param log_file: the filename to which to write all the information
+    :type log_file: string
+    """
+
+    log_file = _check_filename(log_file)
+
+    f = open(log_file, "w")
+
+    if all:
+        attrList = [[{'attr': 'id', 'name': 'ID'},
+                     {'attr': 'name', 'name': 'Name'},
+                     {'attr': 'serial', 'name': 'Serial'},
+                     {'attr': 'uuid', 'name': 'UUID'}],
+                    [{'attr': 'temperature', 'name': 'GPU temp.', 'suffix': 'C', 'transform': lambda x: x, 'precision': 0},
+                     {'attr': 'load', 'name': 'GPU util.', 'suffix': '%', 'transform': lambda x: x * 100, 'precision': 0},
+                     {'attr': 'memoryUtil', 'name': 'Memory util.', 'suffix': '%', 'transform': lambda x: x * 100,
+                      'precision': 0}],
+                    [{'attr': 'memoryTotal', 'name': 'Memory total', 'suffix': 'MB', 'precision': 0},
+                     {'attr': 'memoryUsed', 'name': 'Memory used', 'suffix': 'MB', 'precision': 0},
+                     {'attr': 'memoryFree', 'name': 'Memory free', 'suffix': 'MB', 'precision': 0}],
+                    [{'attr': 'display_mode', 'name': 'Display mode'},
+                     {'attr': 'display_active', 'name': 'Display active'}]]
+    else:
+        attrList = [[{'attr': 'id', 'name': 'ID'},
+                     {'attr': 'load', 'name': 'GPU', 'suffix': '%', 'transform': lambda x: x * 100, 'precision': 0},
+                     {'attr': 'memoryUtil', 'name': 'MEM', 'suffix': '%', 'transform': lambda x: x * 100,
+                      'precision': 0}],
+                    ]
+
+    headerString = ''
+
+    # Generating the header with all the properties and writing it to a file
+    for attrGroup in attrList:
+
+        for attrDict in attrGroup:
+            # Add the units after a value
+            attrSuffix = " ("+str(attrDict['suffix'])+")" if ('suffix' in attrDict.keys()) else ''
+            headerString += attrDict['name'] + attrSuffix + ','
+
+    f.write(headerString[:-1])
+    f.write("\n")
+
+    # Get the data as many times as the user has asked
+    for counter in range(count):
+
+        # Gather the data from the GPU
+        GPUs = getGPUs()
+        GPUstrings = [''] * len(GPUs)
+
+        for attrGroup in attrList:
+
+            for attrDict in attrGroup:
+
+                # Precision to use for a particular property
+                attrPrecision = '.' + str(attrDict['precision']) if ('precision' in attrDict.keys()) else ''
+
+                # Transform the value of the property (for example, multiply by 100 a percentage)
+                attrTransform = attrDict['transform'] if ('transform' in attrDict.keys()) else lambda x: x
+
+                for gpuIdx, gpu in enumerate(GPUs):
+                    attr = getattr(gpu, attrDict['attr'])
+
+                    attr = attrTransform(attr)
+
+                    if isinstance(attr, float):
+                        attrStr = ('{0:' + attrPrecision + 'f}').format(attr)
+                    elif isinstance(attr, int):
+                        attrStr = ('{0:d}').format(attr)
+                    elif isinstance(attr, str):
+                        attrStr = attr
+                    else:
+                        raise TypeError('Unhandled object type (' + str(type(attr)) + ') for attribute \'' + attrDict[
+                            'name'] + '\'')
+
+                    # Add the property to a particular GPU line
+                    GPUstrings[gpuIdx] += attrStr + ','
+
+        for GPUstring in GPUstrings:
+            f.write(GPUstring[:-1])
+            f.write("\n")
+
+        # Wait the user specified time before gathering GPU data again
+        time.sleep(delay)
+
+    f.close()
